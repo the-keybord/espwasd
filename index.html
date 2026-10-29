@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0" />
+  <title>ESP32 WASD Remote Controller</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  
+  <style>
+    :root {
+      --bg-color: #0b0f19;
+      --card-bg: rgba(18, 24, 38, 0.9);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --accent-cyan: #00f0ff;
+      --accent-cyan-glow: rgba(0, 240, 255, 0.35);
+      --accent-purple: #a855f7;
+      --accent-emerald: #10b981;
+      --accent-red: #ef4444;
+      --screen-bg: #070a12;
+      --screen-border: #1e293b;
+      --key-base: #1a2234;
+      --key-border: #2e3a54;
+      --key-shadow: #0e1320;
+      --key-text: #e2e8f0;
+      --key-active-bg: #00f0ff;
+      --key-active-text: #050b14;
+      --key-active-shadow: #008899;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      background-image: 
+        radial-gradient(ellipse at 50% -20%, rgba(0, 240, 255, 0.12), transparent 70%),
+        radial-gradient(ellipse at 80% 120%, rgba(168, 85, 247, 0.1), transparent 60%);
+      color: #f1f5f9;
+      font-family: 'Outfit', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.25rem 1rem;
+      overflow-x: hidden;
+    }
+
+    .app-container {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    /* Header */
+    header {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.25rem 0.25rem;
+    }
+
+    .brand-title h1 {
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      background: linear-gradient(135deg, #fff 30%, var(--accent-cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-title span {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: #64748b;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Connect Button & Indicator */
+    .connection-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+
+    .btn-connect {
+      background: linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(168, 85, 247, 0.15));
+      border: 1px solid rgba(0, 240, 255, 0.4);
+      color: #ffffff;
+      padding: 0.5rem 1rem;
+      border-radius: 9999px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.2s ease;
+      box-shadow: 0 0 16px rgba(0, 240, 255, 0.15);
+    }
+
+    .btn-connect:hover {
+      background: linear-gradient(135deg, rgba(0, 240, 255, 0.28), rgba(168, 85, 247, 0.28));
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 20px rgba(0, 240, 255, 0.35);
+      transform: translateY(-1px);
+    }
+
+    .btn-connect.connected {
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.45);
+      color: #fca5a5;
+      box-shadow: 0 0 16px rgba(239, 68, 68, 0.15);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #64748b;
+      transition: all 0.3s ease;
+    }
+
+    .status-dot.active {
+      background-color: var(--accent-emerald);
+      box-shadow: 0 0 10px var(--accent-emerald);
+    }
+
+    .status-dot.connecting {
+      background-color: #f59e0b;
+      box-shadow: 0 0 10px #f59e0b;
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.3); }
+    }
+
+    /* Warning Banner */
+    .notice-banner {
+      width: 100%;
+      padding: 0.6rem 0.85rem;
+      border-radius: 10px;
+      font-size: 0.75rem;
+      line-height: 1.4;
+      display: none;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: #fde68a;
+    }
+
+    /* =========================================
+       SERIAL MONITOR (Multi-row Stream Field)
+       ========================================= */
+    .monitor-panel {
+      width: 100%;
+      background: var(--screen-bg);
+      border: 1px solid var(--screen-border);
+      border-radius: 14px;
+      padding: 0.65rem 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.7);
+    }
+
+    .monitor-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 0.35rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .monitor-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .monitor-label::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: var(--accent-cyan);
+      box-shadow: 0 0 6px var(--accent-cyan);
+    }
+
+    .btn-clear-monitor {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #94a3b8;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 0.18rem 0.55rem;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-clear-monitor:hover {
+      background: rgba(0, 240, 255, 0.12);
+      border-color: rgba(0, 240, 255, 0.35);
+      color: #ffffff;
+    }
+
+    .monitor-screen {
+      width: 100%;
+      height: 135px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      color: var(--accent-cyan);
+      text-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding: 0.25rem 0.15rem;
+      user-select: text;
+      scroll-behavior: auto;
+    }
+
+    .monitor-screen::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    .monitor-screen::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 4px;
+    }
+
+    .monitor-screen::-webkit-scrollbar-thumb {
+      background: rgba(0, 240, 255, 0.25);
+      border-radius: 4px;
+    }
+
+    /* Keypad Card */
+    .keypad-container {
+      width: 100%;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 1.15rem;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Program Execution Lock Overlay */
+    .lock-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(11, 15, 25, 0.88);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-radius: 20px;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      padding: 1.5rem;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      transform: scale(0.96);
+    }
+
+    .lock-overlay.active {
+      opacity: 1;
+      pointer-events: all;
+      transform: scale(1);
+    }
+
+    .lock-spinner {
+      width: 46px;
+      height: 46px;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: var(--accent-cyan);
+      border-right-color: var(--accent-purple);
+      border-radius: 50%;
+      animation: spin 0.85s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+      box-shadow: 0 0 18px rgba(0, 240, 255, 0.25);
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .lock-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      background: rgba(0, 240, 255, 0.12);
+      border: 1px solid rgba(0, 240, 255, 0.4);
+      color: var(--accent-cyan);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      box-shadow: 0 0 12px rgba(0, 240, 255, 0.2);
+    }
+
+    .lock-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: #ffffff;
+      text-align: center;
+      text-shadow: 0 0 14px rgba(0, 240, 255, 0.35);
+    }
+
+    .lock-sub {
+      font-size: 0.78rem;
+      color: #94a3b8;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.02em;
+      text-align: center;
+    }
+
+    .grid-4x4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.65rem;
+      touch-action: none;
+      transition: filter 0.25s ease, opacity 0.25s ease;
+    }
+
+    .grid-4x4.locked {
+      filter: grayscale(0.5) blur(1px);
+      opacity: 0.3;
+      pointer-events: none !important;
+    }
+
+    .key-btn {
+      aspect-ratio: 1 / 1;
+      position: relative;
+      background: var(--key-base);
+      border: 1px solid var(--key-border);
+      border-radius: 12px;
+      color: var(--key-text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.35rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.05s ease, background-color 0.05s ease, box-shadow 0.05s ease;
+      box-shadow: 0 5px 0 var(--key-shadow), 0 6px 12px rgba(0, 0, 0, 0.4);
+      touch-action: none;
+    }
+
+    /* WASD subtle highlight */
+    .key-btn[data-key="W"],
+    .key-btn[data-key="A"],
+    .key-btn[data-key="S"],
+    .key-btn[data-key="D"] {
+      border-color: rgba(0, 240, 255, 0.35);
+      color: #ffffff;
+    }
+
+    .key-btn.active,
+    .key-btn:active {
+      transform: translateY(4px);
+      background: var(--key-active-bg);
+      color: var(--key-active-text);
+      border-color: #ffffff;
+      box-shadow: 0 1px 0 var(--key-active-shadow), 0 0 20px var(--accent-cyan-glow);
+    }
+
+    footer {
+      font-size: 0.72rem;
+      color: #475569;
+      text-align: center;
+      letter-spacing: 0.02em;
+    }
+
+    footer code {
+      color: #94a3b8;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header>
+      <div class="brand-title">
+        <h1>ESP32 REMOTE</h1>
+        <span>4x4 Bluetooth Controller</span>
+      </div>
+
+      <div class="connection-controls">
+        <div class="status-dot" id="statusDot"></div>
+        <button id="connectBtn" class="btn-connect">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"></polyline>
+          </svg>
+          <span id="connectBtnText">Connect</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- HTTPS & Web Bluetooth warning banner if needed -->
+    <div id="noticeBanner" class="notice-banner"></div>
+
+    <!-- SERIAL MONITOR -->
+    <section class="monitor-panel">
+      <div class="monitor-header">
+        <span class="monitor-label">Serial Monitor</span>
+        <button id="clearMonitorBtn" class="btn-clear-monitor" type="button">Clear</button>
+      </div>
+      <div class="monitor-screen" id="monitor"></div>
+    </section>
+
+    <!-- 4x4 Keypad -->
+    <main class="keypad-container">
+      <!-- Program Execution Lock Overlay -->
+      <div class="lock-overlay" id="lockOverlay">
+        <div class="lock-spinner"></div>
+        <div class="lock-badge">PAUSED</div>
+        <div class="lock-title" id="lockTitle">PROGRAM RUNNING</div>
+        <div class="lock-sub" id="lockSub">Buttons are paused until program finishes</div>
+      </div>
+
+      <div class="grid-4x4" id="keypadGrid">
+        <!-- Row 1: 1, 2, 3, 4 -->
+        <button class="key-btn" data-key="1">1</button>
+        <button class="key-btn" data-key="2">2</button>
+        <button class="key-btn" data-key="3">3</button>
+        <button class="key-btn" data-key="4">4</button>
+
+        <!-- Row 2: Q, W, E, R -->
+        <button class="key-btn" data-key="Q">Q</button>
+        <button class="key-btn" data-key="W">W</button>
+        <button class="key-btn" data-key="E">E</button>
+        <button class="key-btn" data-key="R">R</button>
+
+        <!-- Row 3: A, S, D, F -->
+        <button class="key-btn" data-key="A">A</button>
+        <button class="key-btn" data-key="S">S</button>
+        <button class="key-btn" data-key="D">D</button>
+        <button class="key-btn" data-key="F">F</button>
+
+        <!-- Row 4: Z, X, C, V -->
+        <button class="key-btn" data-key="Z">Z</button>
+        <button class="key-btn" data-key="X">X</button>
+        <button class="key-btn" data-key="C">C</button>
+        <button class="key-btn" data-key="V">V</button>
+      </div>
+    </main>
+
+    <footer>
+      ESP32 streams to the monitor with: <code>monitor.println("...")</code>
+    </footer>
+  </div>
+
+  <script>
+    // Bluetooth Service UUIDs matching the ESP32 sketch
+    const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+    const RX_CHAR_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // Web sends keys to ESP32
+    const TX_CHAR_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // ESP32 sends monitor stream
+
+    let bleDevice = null;
+    let rxCharacteristic = null;
+    let isConnected = false;
+
+    // Track active keys and touch points
+    const activeKeys = new Set();
+    const ongoingTouches = new Map();
+
+    // DOM Elements
+    const connectBtn = document.getElementById('connectBtn');
+    const connectBtnText = document.getElementById('connectBtnText');
+    const statusDot = document.getElementById('statusDot');
+    const monitorEl = document.getElementById('monitor');
+    const clearMonitorBtn = document.getElementById('clearMonitorBtn');
+    const noticeBanner = document.getElementById('noticeBanner');
+    const keypadButtons = document.querySelectorAll('.key-btn');
+    const keypadGrid = document.getElementById('keypadGrid');
+    const lockOverlay = document.getElementById('lockOverlay');
+    const lockTitle = document.getElementById('lockTitle');
+
+    let isProgramLocked = false;
+    const MAX_MONITOR_CHARS = 8000;
+
+    // Scroll monitor to the very last line
+    function scrollToLastLine() {
+      monitorEl.scrollTop = monitorEl.scrollHeight;
+      requestAnimationFrame(() => {
+        monitorEl.scrollTop = monitorEl.scrollHeight;
+      });
+    }
+
+    // Append raw data stream to the serial monitor and keep at the last line
+    function appendMonitor(text) {
+      if (!text) return;
+      let current = monitorEl.textContent + text;
+      if (current.length > MAX_MONITOR_CHARS) {
+        current = current.slice(current.length - MAX_MONITOR_CHARS);
+        const firstNewline = current.indexOf('\n');
+        if (firstNewline !== -1) {
+          current = current.slice(firstNewline + 1);
+        }
+      }
+      monitorEl.textContent = current;
+      scrollToLastLine();
+    }
+
+    // Append a full line to the serial monitor
+    function appendMonitorLine(line) {
+      const current = monitorEl.textContent;
+      const prefix = (current.length > 0 && !current.endsWith('\n')) ? '\n' : '';
+      appendMonitor(prefix + line + '\n');
+    }
+
+    function clearMonitor() {
+      monitorEl.textContent = '';
+      scrollToLastLine();
+    }
+
+    clearMonitorBtn.addEventListener('click', clearMonitor);
+
+    // Keep pinned to last line if layout resizes
+    window.addEventListener('resize', scrollToLastLine);
+
+    function showLockOverlay(progName) {
+      isProgramLocked = true;
+      activeKeys.forEach(k => {
+        const btn = document.querySelector(`.key-btn[data-key="${k}"]`);
+        if (btn) btn.classList.remove('active');
+      });
+      activeKeys.clear();
+      ongoingTouches.clear();
+
+      lockTitle.textContent = (progName && progName.length > 0 ? progName : 'PROGRAM') + ' RUNNING';
+      lockOverlay.classList.add('active');
+      keypadGrid.classList.add('locked');
+    }
+
+    function hideLockOverlay() {
+      isProgramLocked = false;
+      lockOverlay.classList.remove('active');
+      keypadGrid.classList.remove('locked');
+    }
+
+    // Check browser compatibility and security
+    function checkPrerequisites() {
+      if (!navigator.bluetooth) {
+        noticeBanner.style.display = 'block';
+        noticeBanner.innerHTML = '⚠️ <strong>Web Bluetooth not supported</strong> in this browser. Please use Chrome, Edge, or an Android Chromium browser.';
+        connectBtn.disabled = true;
+        connectBtn.style.opacity = '0.5';
+      } else if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        noticeBanner.style.display = 'block';
+        noticeBanner.innerHTML = '⚠️ <strong>HTTPS Required:</strong> Web Bluetooth requires a secure HTTPS host or localhost to connect to devices.';
+      }
+    }
+
+    // Connect / Disconnect button action
+    async function toggleConnection() {
+      if (isConnected) {
+        if (bleDevice && bleDevice.gatt.connected) {
+          bleDevice.gatt.disconnect();
+        }
+        setDisconnectedState();
+      } else {
+        await connectToEsp();
+      }
+    }
+
+    // Connect to the ESP32
+    async function connectToEsp() {
+      try {
+        statusDot.className = 'status-dot connecting';
+        connectBtnText.textContent = 'Connecting...';
+        
+        bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [
+            { services: [SERVICE_UUID] },
+            { namePrefix: 'ESP32' },
+            { namePrefix: 'BBC' },
+            { namePrefix: 'micro:bit' }
+          ],
+          optionalServices: [SERVICE_UUID]
+        });
+
+        bleDevice.addEventListener('gattserverdisconnected', setDisconnectedState);
+
+        const server = await bleDevice.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+
+        rxCharacteristic = await service.getCharacteristic(RX_CHAR_UUID);
+        const txCharacteristic = await service.getCharacteristic(TX_CHAR_UUID);
+
+        // Listen for stream packets from ESP32
+        await txCharacteristic.startNotifications();
+        txCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
+          const decoder = new TextDecoder('utf-8');
+          const message = decoder.decode(event.target.value);
+          
+          // Expected formats: "M:text", "CLEAR", "LOCK:name", "UNLOCK"
+          if (message === 'CLEAR') {
+            clearMonitor();
+          } else if (message.startsWith('LOCK:')) {
+            const prog = message.substring(5).trim();
+            showLockOverlay(prog);
+          } else if (message === 'UNLOCK') {
+            hideLockOverlay();
+          } else if (message.startsWith('M:')) {
+            appendMonitor(message.substring(2));
+          } else {
+            appendMonitorLine(message);
+          }
+        });
+
+        setConnectedState();
+      } catch (error) {
+        console.error('Connection error:', error);
+        setDisconnectedState();
+      }
+    }
+
+    function setConnectedState() {
+      isConnected = true;
+      statusDot.className = 'status-dot active';
+      connectBtn.classList.add('connected');
+      connectBtnText.textContent = 'Disconnect';
+      appendMonitorLine('[System] Connected to ESP32');
+    }
+
+    function setDisconnectedState() {
+      const wasConnected = isConnected;
+      isConnected = false;
+      rxCharacteristic = null;
+      statusDot.className = 'status-dot';
+      connectBtn.classList.remove('connected');
+      connectBtnText.textContent = 'Connect';
+      if (wasConnected) {
+        appendMonitorLine('[System] Disconnected');
+      }
+
+      hideLockOverlay();
+
+      activeKeys.forEach(k => {
+        const btn = document.querySelector(`.key-btn[data-key="${k}"]`);
+        if (btn) btn.classList.remove('active');
+      });
+      activeKeys.clear();
+      ongoingTouches.clear();
+    }
+
+    // Send "+<KEY>" or "-<KEY>" to ESP32
+    async function sendKeyCommand(action, keyChar) {
+      if (!rxCharacteristic || !isConnected) return;
+      try {
+        const command = action + keyChar; // e.g. "+W" or "-W"
+        const data = new TextEncoder().encode(command);
+        if (rxCharacteristic.properties.writeWithoutResponse) {
+          await rxCharacteristic.writeValueWithoutResponse(data);
+        } else {
+          await rxCharacteristic.writeValue(data);
+        }
+      } catch (err) {
+        console.error('Send error:', err);
+      }
+    }
+
+    function pressKey(keyChar, buttonElement) {
+      if (isProgramLocked) return;
+      if (activeKeys.has(keyChar)) return;
+      activeKeys.add(keyChar);
+      if (buttonElement) buttonElement.classList.add('active');
+      sendKeyCommand('+', keyChar);
+    }
+
+    function releaseKey(keyChar, buttonElement) {
+      if (isProgramLocked) return;
+      if (!activeKeys.has(keyChar)) return;
+      activeKeys.delete(keyChar);
+      if (buttonElement) buttonElement.classList.remove('active');
+      sendKeyCommand('-', keyChar);
+    }
+
+    // Attach mouse & multi-touch listeners to all 16 buttons
+    keypadButtons.forEach(button => {
+      const keyChar = button.getAttribute('data-key');
+
+      // Mouse
+      button.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        pressKey(keyChar, button);
+      });
+
+      button.addEventListener('mouseup', (e) => {
+        e.preventDefault();
+        releaseKey(keyChar, button);
+      });
+
+      button.addEventListener('mouseleave', (e) => {
+        e.preventDefault();
+        if (activeKeys.has(keyChar)) releaseKey(keyChar, button);
+      });
+
+      // Touch (supports holding W and pressing D at the same time)
+      button.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const touch = e.changedTouches[i];
+          ongoingTouches.set(touch.identifier, { keyChar, button });
+          pressKey(keyChar, button);
+        }
+      }, { passive: false });
+
+      button.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const touch = e.changedTouches[i];
+          const touchData = ongoingTouches.get(touch.identifier);
+          if (touchData) {
+            releaseKey(touchData.keyChar, touchData.button);
+            ongoingTouches.delete(touch.identifier);
+          }
+        }
+      }, { passive: false });
+
+      button.addEventListener('touchcancel', (e) => {
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const touch = e.changedTouches[i];
+          const touchData = ongoingTouches.get(touch.identifier);
+          if (touchData) {
+            releaseKey(touchData.keyChar, touchData.button);
+            ongoingTouches.delete(touch.identifier);
+          }
+        }
+      }, { passive: false });
+    });
+
+    // Keyboard support (1-4, Q-R, A-F, Z-V)
+    const validKeys = new Set([
+      '1', '2', '3', '4',
+      'Q', 'W', 'E', 'R',
+      'A', 'S', 'D', 'F',
+      'Z', 'X', 'C', 'V'
+    ]);
+
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      const upper = e.key.toUpperCase();
+      if (validKeys.has(upper)) {
+        const btn = document.querySelector(`.key-btn[data-key="${upper}"]`);
+        pressKey(upper, btn);
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      const upper = e.key.toUpperCase();
+      if (validKeys.has(upper)) {
+        const btn = document.querySelector(`.key-btn[data-key="${upper}"]`);
+        releaseKey(upper, btn);
+      }
+    });
+
+    connectBtn.addEventListener('click', toggleConnection);
+    checkPrerequisites();
+    appendMonitorLine('[System] Disconnected. Press Connect.');
+  </script>
+</body>
+</html>
